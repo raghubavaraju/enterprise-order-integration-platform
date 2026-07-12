@@ -1,0 +1,49 @@
+%% Architecture documentation — Mermaid source
+%% Enterprise Order Integration Platform — API-led connectivity overview
+flowchart TB
+    subgraph Consumers["Downstream Consumer Applications"]
+        Storefront["E-commerce Storefront"]
+        Mobile["Mobile App"]
+        Dealer["Dealer Partner Portal"]
+    end
+
+    subgraph Experience["Experience Layer"]
+        CEA["Customer Experience API<br/>/api/v1/*"]
+    end
+
+    subgraph Process["Process Layer"]
+        OPA["Order Process API<br/>/api/v1/orders"]
+    end
+
+    subgraph System["System Layer"]
+        SAPAPI["SAP System API<br/>/api/v1/sap-orders"]
+        SFAPI["Salesforce System API<br/>/api/v1/sf-customers"]
+    end
+
+    subgraph Backends["Backend Systems"]
+        SAP[("SAP ERP<br/>Order Management")]
+        SF[("Salesforce CRM<br/>Customer / Account")]
+        DB[("Order Archive DB<br/>Relational, historical orders")]
+    end
+
+    Storefront --> CEA
+    Mobile --> CEA
+    Dealer --> CEA
+
+    CEA -->|OAuth2 Client Credentials| OPA
+    OPA -->|OAuth2 Client Credentials| SAPAPI
+    OPA -->|OAuth2 Client Credentials| SFAPI
+    OPA -->|JDBC, read/write archive| DB
+
+    SAPAPI --> SAP
+    SFAPI --> SF
+
+    classDef experience fill:#4F46E5,color:#fff,stroke:#333;
+    classDef process fill:#0EA5E9,color:#fff,stroke:#333;
+    classDef system fill:#059669,color:#fff,stroke:#333;
+    classDef backend fill:#6B7280,color:#fff,stroke:#333;
+
+    class CEA experience;
+    class OPA process;
+    class SAPAPI,SFAPI system;
+    class SAP,SF,DB backend;
