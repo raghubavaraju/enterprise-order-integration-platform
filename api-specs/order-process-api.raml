@@ -1,0 +1,131 @@
+#%RAML 1.0
+# STATUS: Working example (illustrative RAML 1.0, valid syntax)
+title: Order Process API
+version: v1
+baseUri: https://order-process-api.fictional-northbridge.example.com/api/v1
+mediaType: application/json
+
+securitySchemes:
+  oauth2ClientCredentials:
+    type: OAuth 2.0
+    describedBy:
+      headers:
+        Authorization:
+          type: string
+    settings:
+      accessTokenUri: https://auth.fictional-northbridge.example.com/oauth/token
+      authorizationGrants: [client_credentials]
+
+securedBy: [oauth2ClientCredentials]
+
+types:
+  OrderSummary:
+    type: object
+    properties:
+      orderId: string
+      status: string
+      orderDate: date-only
+      totalAmount: number
+      currency: string
+      customer:
+        type: object
+        properties:
+          customerId: string
+          accountType: string
+          loyaltyTier:
+            type: string
+            required: false
+        required: false
+        description: Omitted or marked unavailable if Salesforce is degraded — see graceful degradation design.
+      customerDataAvailable: boolean
+      lineItems:
+        type: array
+        items:
+          type: object
+          properties:
+            sku: string
+            quantity: integer
+            unitPrice: number
+
+  OrderCreateRequest:
+    type: object
+    properties:
+      customerId: string
+      idempotencyKey: string
+      lineItems:
+        type: array
+        items:
+          type: object
+          properties:
+            sku: string
+            quantity: integer
+
+  ErrorResponse:
+    type: object
+    properties:
+      errorCode: string
+      message: string
+      correlationId: string
+      timestamp: datetime
+
+/orders:
+  /{orderId}:
+    get:
+      description: >
+        Retrieve a combined order + customer view. Orchestrates SAP System API and
+        Salesforce System API; falls back to the Order Archive Database if the order
+        falls outside SAP's active retention window.
+      securedBy: [oauth2ClientCredentials]
+      headers:
+        X-Correlation-Id:
+          type: string
+          required: false
+      responses:
+        200:
+          body:
+            application/json:
+              type: OrderSummary
+        206:
+          description: Partial content — order data returned, customer data unavailable (Salesforce degraded)
+          body:
+            application/json:
+              type: OrderSummary
+        404:
+          body:
+            application/json:
+              type: ErrorResponse
+        502:
+          body:
+            application/json:
+              type: ErrorResponse
+  post:
+    description: Create a new order. Validates request, submits to SAP, archives summary.
+    securedBy: [oauth2ClientCredentials]
+    headers:
+      X-Correlation-Id:
+        type: string
+        required: false
+      Idempotency-Key:
+        type: string
+        required: true
+    body:
+      application/json:
+        type: OrderCreateRequest
+    responses:
+      201:
+        body:
+          application/json:
+            type: OrderSummary
+      400:
+        body:
+          application/json:
+            type: ErrorResponse
+      409:
+        description: Idempotency key reused with a different request body
+        body:
+          application/json:
+            type: ErrorResponse
+      502:
+        body:
+          application/json:
+            type: ErrorResponse

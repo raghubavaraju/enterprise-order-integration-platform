@@ -1,0 +1,93 @@
+#%RAML 1.0
+# STATUS: Working example (illustrative RAML 1.0, valid syntax)
+title: Customer Experience API
+version: v1
+baseUri: https://customer-experience-api.fictional-northbridge.example.com/api/v1
+mediaType: application/json
+
+securitySchemes:
+  oauth2AuthCode:
+    type: OAuth 2.0
+    describedBy:
+      headers:
+        Authorization:
+          type: string
+    settings:
+      authorizationUri: https://auth.fictional-northbridge.example.com/oauth/authorize
+      accessTokenUri: https://auth.fictional-northbridge.example.com/oauth/token
+      authorizationGrants: [authorization_code, client_credentials]
+
+securedBy: [oauth2AuthCode]
+
+types:
+  OrderView:
+    type: object
+    properties:
+      orderId: string
+      status: string
+      orderDate: date-only
+      totalAmount: number
+      currency: string
+      customerSummary:
+        type: object
+        required: false
+      lineItems:
+        type: array
+        required: false
+
+  ErrorResponse:
+    type: object
+    properties:
+      errorCode: string
+      message: string
+      correlationId: string
+      timestamp: datetime
+
+/orders:
+  /{orderId}:
+    get:
+      description: >
+        Channel-shaped order view. The X-Channel header (mobile | storefront | dealer-portal)
+        controls response shaping: mobile receives a lightweight summary; dealer-portal
+        receives extended account/pricing-tier fields.
+      securedBy: [oauth2AuthCode]
+      headers:
+        X-Channel:
+          enum: [mobile, storefront, dealer-portal]
+          required: true
+        X-Correlation-Id:
+          type: string
+          required: false
+      responses:
+        200:
+          body:
+            application/json:
+              type: OrderView
+        404:
+          body:
+            application/json:
+              type: ErrorResponse
+        502:
+          body:
+            application/json:
+              type: ErrorResponse
+  get:
+    description: List orders for the authenticated customer, paginated.
+    securedBy: [oauth2AuthCode]
+    queryParameters:
+      offset:
+        type: integer
+        default: 0
+      limit:
+        type: integer
+        default: 20
+        maximum: 100
+      status:
+        type: string
+        required: false
+    responses:
+      200:
+        body:
+          application/json:
+            type: array
+            items: OrderView

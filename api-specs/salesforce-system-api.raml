@@ -1,0 +1,72 @@
+#%RAML 1.0
+# STATUS: Working example (illustrative RAML 1.0, valid syntax) — fictional backend, no real Salesforce org.
+title: Salesforce System API
+version: v1
+baseUri: https://salesforce-system-api.fictional-northbridge.example.com/api/v1
+mediaType: application/json
+
+securitySchemes:
+  oauth2ClientCredentials:
+    type: OAuth 2.0
+    describedBy:
+      headers:
+        Authorization:
+          description: Bearer token issued via client_credentials grant
+          type: string
+    settings:
+      accessTokenUri: https://auth.fictional-northbridge.example.com/oauth/token
+      authorizationGrants: [client_credentials]
+
+securedBy: [oauth2ClientCredentials]
+
+types:
+  Customer:
+    type: object
+    properties:
+      customerId: string
+      salesforceAccountId: string
+      accountType:
+        enum: [RETAIL, DEALER]
+      loyaltyTier:
+        enum: [STANDARD, SILVER, GOLD]
+        required: false
+      dealerPricingTier:
+        type: string
+        required: false
+      createdDate: date-only
+
+  ErrorResponse:
+    type: object
+    properties:
+      errorCode: string
+      message: string
+      correlationId: string
+      timestamp: datetime
+
+/sf-customers:
+  /{customerId}:
+    get:
+      description: Retrieve a single customer/account record from Salesforce by customer ID.
+      securedBy: [oauth2ClientCredentials]
+      headers:
+        X-Correlation-Id:
+          type: string
+          required: false
+      responses:
+        200:
+          body:
+            application/json:
+              type: Customer
+        404:
+          body:
+            application/json:
+              type: ErrorResponse
+        429:
+          description: Salesforce API rate limit exceeded
+          body:
+            application/json:
+              type: ErrorResponse
+        502:
+          body:
+            application/json:
+              type: ErrorResponse

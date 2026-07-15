@@ -1,0 +1,105 @@
+#%RAML 1.0
+# STATUS: Working example (illustrative RAML 1.0, valid syntax) — fictional backend, no real SAP instance.
+title: SAP System API
+version: v1
+baseUri: https://sap-system-api.fictional-northbridge.example.com/api/v1
+mediaType: application/json
+
+securitySchemes:
+  oauth2ClientCredentials:
+    type: OAuth 2.0
+    describedBy:
+      headers:
+        Authorization:
+          description: Bearer token issued via client_credentials grant
+          type: string
+    settings:
+      accessTokenUri: https://auth.fictional-northbridge.example.com/oauth/token
+      authorizationGrants: [client_credentials]
+
+securedBy: [oauth2ClientCredentials]
+
+types:
+  Order:
+    type: object
+    properties:
+      orderId: string
+      sapOrderNumber: string
+      customerId: string
+      status:
+        enum: [CREATED, IN_FULFILLMENT, SHIPPED, DELIVERED, CANCELLED]
+      orderDate: date-only
+      lineItems:
+        type: array
+        items:
+          type: object
+          properties:
+            sku: string
+            quantity: integer
+            unitPrice: number
+      totalAmount: number
+      currency: string
+
+  OrderCreateRequest:
+    type: object
+    properties:
+      customerId: string
+      idempotencyKey: string
+      lineItems:
+        type: array
+        items:
+          type: object
+          properties:
+            sku: string
+            quantity: integer
+
+  ErrorResponse:
+    type: object
+    properties:
+      errorCode: string
+      message: string
+      correlationId: string
+      timestamp: datetime
+
+/sap-orders:
+  /{orderId}:
+    get:
+      description: Retrieve a single order from SAP by order ID.
+      securedBy: [oauth2ClientCredentials]
+      responses:
+        200:
+          body:
+            application/json:
+              type: Order
+        404:
+          body:
+            application/json:
+              type: ErrorResponse
+        502:
+          description: SAP backend unavailable or returned a malformed response
+          body:
+            application/json:
+              type: ErrorResponse
+  post:
+    description: Create a new order in SAP.
+    securedBy: [oauth2ClientCredentials]
+    headers:
+      X-Correlation-Id:
+        type: string
+        required: false
+    body:
+      application/json:
+        type: OrderCreateRequest
+    responses:
+      201:
+        body:
+          application/json:
+            type: Order
+      400:
+        body:
+          application/json:
+            type: ErrorResponse
+      502:
+        body:
+          application/json:
+            type: ErrorResponse
