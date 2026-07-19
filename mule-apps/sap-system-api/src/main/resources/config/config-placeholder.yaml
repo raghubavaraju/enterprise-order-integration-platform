@@ -1,0 +1,21 @@
+# STATUS: Configuration placeholder — no real values. Never commit real credentials.
+# Resolved via Mule's Secure Configuration Properties module in a real deployment.
+
+env: "${mule.env}"                     # dev | qa | prod (externalized per environment)
+
+sap:
+  base.uri: "https://sap-fictional-backend.internal.example.com/odata/v2/orders"
+  client.id: "${secure::sap.client.id}"          # placeholder — not a real client ID
+  client.secret: "${secure::sap.client.secret}"  # placeholder — not a real secret
+  timeout.ms: 5000
+  retry.max: 3
+  retry.backoff.ms: 500
+  circuitBreaker.failureThreshold: 5
+  circuitBreaker.coolDown.ms: 30000
+
+oauth:
+  token.uri: "https://auth.fictional-northbridge.example.com/oauth/token"
+  required.scope: "orders:read orders:write"
+
+http:
+  listener.port: "${http.port}"        # externalized, e.g. 8081 locally

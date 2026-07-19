@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- STATUS: Working example — shared global error handler pattern, imported by each of the four apps. -->
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+
+    <!--
+        Shared global error handler, referenced from every flow via <error-handler ref="global-error-handler"/>.
+        Standardizes the error response shape across all four APIs, per
+        docs/architecture-overview.md and the ErrorResponse type in each RAML spec.
+    -->
+    <error-handler name="global-error-handler">
+
+        <on-error-propagate type="HTTP:NOT_FOUND">
+            <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    errorCode: "RESOURCE_NOT_FOUND",
+    message: error.description default "The requested resource was not found.",
+    correlationId: correlationId,
+    timestamp: now()
+}]]></ee:set-payload>
+                </ee:message>
+            </ee:transform>
+            <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core">
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">404</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-propagate>
+
+        <on-error-propagate type="HTTP:TIMEOUT, HTTP:CONNECTIVITY">
+            <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    errorCode: "BACKEND_UNAVAILABLE",
+    message: "A downstream system did not respond within the configured timeout.",
+    correlationId: correlationId,
+    timestamp: now()
+}]]></ee:set-payload>
+                </ee:message>
+            </ee:transform>
+            <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core">
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">502</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-propagate>
+
+        <on-error-propagate type="VALIDATION:INVALID_BOOLEAN, VALIDATION:INVALID_NUMBER, MULE:EXPRESSION">
+            <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    errorCode: "INVALID_REQUEST",
+    message: error.description default "The request could not be validated.",
+    correlationId: correlationId,
+    timestamp: now()
+}]]></ee:set-payload>
+                </ee:message>
+            </ee:transform>
+            <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core">
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">400</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-propagate>
+
+        <!-- Catch-all: never leak a raw stack trace or internal detail to a caller. -->
+        <on-error-propagate type="ANY">
+            <logger level="ERROR"
+                    message="Unhandled error: #[error.errorType] - #[error.description] - correlationId=#[correlationId]"/>
+            <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    errorCode: "INTERNAL_ERROR",
+    message: "An unexpected error occurred while processing the request.",
+    correlationId: correlationId,
+    timestamp: now()
+}]]></ee:set-payload>
+                </ee:message>
+            </ee:transform>
+            <ee:transform xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core">
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">500</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-propagate>
+
+    </error-handler>
+</mule>

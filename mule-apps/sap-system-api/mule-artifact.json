@@ -1,0 +1,16 @@
+{
+  "minMuleVersion": "4.6.0",
+  "name": "sap-system-api",
+  "requiredProduct": "MULE_EE",
+  "classLoaderModelLoaderDescriptor": {
+    "id": "mule",
+    "attributes": {
+      "exportedPackages": [],
+      "exportedResources": ["dwl", "config"]
+    }
+  },
+  "configs": ["sap-system-api.xml"],
+  "secureProperties": [
+    "sap.client.secret"
+  ]
+}

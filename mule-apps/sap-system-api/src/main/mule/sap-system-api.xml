@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- STATUS: Working example flow (illustrative Mule 4 XML, valid syntax; fictional backend). -->
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <import file="../../../common/global-error-handler.xml"/>
+
+    <http:listener-config name="sap-api-httpListenerConfig">
+        <http:listener-connection host="0.0.0.0" port="${http.listener.port}"/>
+    </http:listener-config>
+
+    <http:request-config name="sap-backend-requestConfig">
+        <http:request-connection host="sap-fictional-backend.internal.example.com" protocol="HTTPS">
+            <http:client-socket-properties>
+                <http:connection-timeout connectionTimeout="${sap.timeout.ms}"/>
+            </http:client-socket-properties>
+        </http:request-connection>
+    </http:request-config>
+
+    <apikit:config name="sap-system-api-config" api="sap-system-api.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus"/>
+
+    <flow name="sap-system-api-main">
+        <http:listener config-ref="sap-api-httpListenerConfig" path="/api/v1/*"/>
+        <ee:transform doc:name="Capture correlation ID">
+            <ee:variables>
+                <ee:set-variable variableName="correlationId">
+                    <![CDATA[%dw 2.0
+output text/plain
+---
+attributes.headers['X-Correlation-Id'] default uuid()]]>
+                </ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <apikit:router config-ref="sap-system-api-config"/>
+        <error-handler ref="global-error-handler"/>
+    </flow>
+
+    <!-- GET /sap-orders/{orderId} -->
+    <flow name="get:\sap-orders\(orderId):sap-system-api-config">
+        <http:request method="GET" config-ref="sap-backend-requestConfig"
+                      path="/OrderService/SalesOrder('#[attributes.uriParams.orderId]')"
+                      responseTimeout="${sap.timeout.ms}">
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.correlationId}]]]></http:headers>
+            <!-- Retry-with-backoff wraps this request in until-successful for transient failures;
+                 omitted here for readability, documented fully in docs/scalability-and-resilience.md -->
+        </http:request>
+        <ee:transform doc:name="Map SAP response to canonical Order">
+            <ee:message>
+                <ee:set-payload resource="dwl/sap-order-to-canonical.dwl"/>
+            </ee:message>
+        </ee:transform>
+    </flow>
+
+    <!-- POST /sap-orders -->
+    <flow name="post:\sap-orders:application\json:sap-system-api-config">
+        <ee:transform doc:name="Validate + map request">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    SoldToParty: payload.customerId,
+    IdempotencyKey: payload.idempotencyKey,
+    to_Item: payload.lineItems map (li) -> {
+        Material: li.sku,
+        RequestedQuantity: li.quantity
+    }
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        <http:request method="POST" config-ref="sap-backend-requestConfig"
+                      path="/OrderService/SalesOrder"
+                      responseTimeout="${sap.timeout.ms}">
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.correlationId, 'Idempotency-Key': payload.IdempotencyKey}]]]></http:headers>
+        </http:request>
+        <ee:transform doc:name="Map SAP response to canonical Order">
+            <ee:message>
+                <ee:set-payload resource="dwl/sap-order-to-canonical.dwl"/>
+            </ee:message>
+        </ee:transform>
+        <ee:transform doc:name="Set 201 status">
+            <ee:variables>
+                <ee:set-variable variableName="httpStatus">201</ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+    </flow>
+
+</mule>
