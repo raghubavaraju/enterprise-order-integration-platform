@@ -1,0 +1,17 @@
+{
+  "minMuleVersion": "4.6.0",
+  "name": "salesforce-system-api",
+  "requiredProduct": "MULE_EE",
+  "classLoaderModelLoaderDescriptor": {
+    "id": "mule",
+    "attributes": {
+      "exportedPackages": [],
+      "exportedResources": ["dwl", "config"]
+    }
+  },
+  "configs": ["salesforce-system-api.xml"],
+  "secureProperties": [
+    "salesforce.client.secret",
+    "salesforce.jwt.privateKey"
+  ]
+}

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- STATUS: Working example flow (illustrative Mule 4 XML, valid syntax; fictional backend). -->
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <import file="../../../common/global-error-handler.xml"/>
+
+    <http:listener-config name="sf-api-httpListenerConfig">
+        <http:listener-connection host="0.0.0.0" port="${http.listener.port}"/>
+    </http:listener-config>
+
+    <http:request-config name="sf-backend-requestConfig">
+        <http:request-connection host="fictional-northbridge.my.salesforce-instance.example.com" protocol="HTTPS">
+            <http:client-socket-properties>
+                <http:connection-timeout connectionTimeout="${salesforce.timeout.ms}"/>
+            </http:client-socket-properties>
+        </http:request-connection>
+    </http:request-config>
+
+    <apikit:config name="salesforce-system-api-config" api="salesforce-system-api.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus"/>
+
+    <flow name="salesforce-system-api-main">
+        <http:listener config-ref="sf-api-httpListenerConfig" path="/api/v1/*"/>
+        <ee:transform doc:name="Capture correlation ID">
+            <ee:variables>
+                <ee:set-variable variableName="correlationId">
+                    <![CDATA[%dw 2.0
+output text/plain
+---
+attributes.headers['X-Correlation-Id'] default uuid()]]>
+                </ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <apikit:router config-ref="salesforce-system-api-config"/>
+        <error-handler ref="global-error-handler"/>
+    </flow>
+
+    <!-- GET /sf-customers/{customerId} -->
+    <flow name="get:\sf-customers\(customerId):salesforce-system-api-config">
+        <http:request method="GET" config-ref="sf-backend-requestConfig"
+                      path="/query"
+                      responseTimeout="${salesforce.timeout.ms}">
+            <http:query-params><![CDATA[#[{
+                'q': "SELECT Id, External_Customer_Id__c, Type, Loyalty_Tier__c, Dealer_Pricing_Tier__c, CreatedDate FROM Account WHERE External_Customer_Id__c = '" ++ attributes.uriParams.customerId ++ "'"
+            }]]]></http:query-params>
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.correlationId}]]]></http:headers>
+        </http:request>
+        <choice>
+            <when expression="#[sizeOf(payload.records default []) == 0]">
+                <raise-error type="HTTP:NOT_FOUND" description="Customer not found in Salesforce"/>
+            </when>
+            <otherwise>
+                <ee:transform doc:name="Take first record">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload.records[0]]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+                <ee:transform doc:name="Map Salesforce record to canonical Customer">
+                    <ee:message>
+                        <ee:set-payload resource="dwl/salesforce-customer-to-canonical.dwl"/>
+                    </ee:message>
+                </ee:transform>
+            </otherwise>
+        </choice>
+    </flow>
+
+</mule>

@@ -1,0 +1,19 @@
+# STATUS: Configuration placeholder — no real values. Never commit real credentials.
+
+env: "${mule.env}"
+
+salesforce:
+  base.uri: "https://fictional-northbridge.my.salesforce-instance.example.com/services/data/v60.0"
+  client.id: "${secure::salesforce.client.id}"           # placeholder
+  client.secret: "${secure::salesforce.client.secret}"   # placeholder
+  jwt.privateKey: "${secure::salesforce.jwt.privateKey}" # placeholder — JWT bearer flow, not a plaintext secret in real use
+  timeout.ms: 4000
+  retry.max: 3
+  retry.backoff.ms: 500
+
+oauth:
+  token.uri: "https://auth.fictional-northbridge.example.com/oauth/token"
+  required.scope: "customers:read"
+
+http:
+  listener.port: "${http.port}"
