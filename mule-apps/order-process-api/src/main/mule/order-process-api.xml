@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- STATUS: Working example flow (illustrative Mule 4 XML, valid syntax; fictional backends). -->
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:os="http://www.mulesoft.org/schema/mule/os"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+        http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+        http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+
+    <import file="../../../common/global-error-handler.xml"/>
+
+    <http:listener-config name="process-api-httpListenerConfig">
+        <http:listener-connection host="0.0.0.0" port="${http.listener.port}"/>
+    </http:listener-config>
+
+    <http:request-config name="sap-system-api-requestConfig">
+        <http:request-connection host="sap-system-api.fictional-northbridge.example.com" protocol="HTTPS"/>
+    </http:request-config>
+
+    <http:request-config name="salesforce-system-api-requestConfig">
+        <http:request-connection host="salesforce-system-api.fictional-northbridge.example.com" protocol="HTTPS"/>
+    </http:request-config>
+
+    <db:config name="archive-db-config">
+        <db:generic-connection url="jdbc:postgresql://${archiveDb.host}:${archiveDb.port}/${archiveDb.database}"
+                                user="${archiveDb.user}" password="${archiveDb.password}"/>
+    </db:config>
+
+    <os:object-store name="idempotencyStore" persistent="true" entryTtl="${idempotency.ttl.hours}" entryTtlUnit="HOURS"/>
+
+    <apikit:config name="order-process-api-config" api="order-process-api.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus"/>
+
+    <flow name="order-process-api-main">
+        <http:listener config-ref="process-api-httpListenerConfig" path="/api/v1/*"/>
+        <ee:transform doc:name="Capture correlation ID">
+            <ee:variables>
+                <ee:set-variable variableName="correlationId">
+                    <![CDATA[%dw 2.0
+output text/plain
+---
+attributes.headers['X-Correlation-Id'] default uuid()]]>
+                </ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <apikit:router config-ref="order-process-api-config"/>
+        <error-handler ref="global-error-handler"/>
+    </flow>
+
+    <!-- GET /orders/{orderId} — orchestration with graceful degradation -->
+    <flow name="get:\orders\(orderId):order-process-api-config">
+        <http:request method="GET" config-ref="sap-system-api-requestConfig"
+                      path="/api/v1/sap-orders/#[attributes.uriParams.orderId]"
+                      responseTimeout="${sapSystemApi.timeout.ms}">
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.correlationId}]]]></http:headers>
+        </http:request>
+        <ee:transform doc:name="Store SAP order">
+            <ee:variables>
+                <ee:set-variable variableName="sapOrder"><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <!-- Attempt Salesforce enrichment; on failure, degrade gracefully rather than fail the whole request. -->
+        <try>
+            <http:request method="GET" config-ref="salesforce-system-api-requestConfig"
+                          path="/api/v1/sf-customers/#[vars.sapOrder.customerId]"
+                          responseTimeout="${salesforceSystemApi.timeout.ms}">
+                <http:headers><![CDATA[#[{'X-Correlation-Id': vars.correlationId}]]]></http:headers>
+            </http:request>
+            <ee:transform doc:name="Store Salesforce customer">
+                <ee:variables>
+                    <ee:set-variable variableName="salesforceCustomer"><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+            <error-handler>
+                <on-error-continue type="HTTP:TIMEOUT, HTTP:CONNECTIVITY, HTTP:NOT_FOUND">
+                    <logger level="WARN" message="Salesforce enrichment unavailable, degrading gracefully. correlationId=#[vars.correlationId]"/>
+                    <set-variable variableName="salesforceCustomer" value="#[null]"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+
+        <ee:transform doc:name="Aggregate Order + Customer">
+            <ee:message>
+                <ee:set-payload resource="dwl/aggregate-order-customer.dwl"/>
+            </ee:message>
+        </ee:transform>
+
+        <choice>
+            <when expression="#[vars.salesforceCustomer == null]">
+                <set-variable variableName="httpStatus" value="206"/>
+            </when>
+        </choice>
+    </flow>
+
+    <!-- POST /orders — idempotent order creation + archive write -->
+    <flow name="post:\orders:application\json:order-process-api-config">
+        <os:contains key="#[attributes.headers['Idempotency-Key']]" objectStore="idempotencyStore" target="alreadyProcessed"/>
+        <choice>
+            <when expression="#[vars.alreadyProcessed]">
+                <os:retrieve key="#[attributes.headers['Idempotency-Key']]" objectStore="idempotencyStore" target="cachedResponse"/>
+                <set-payload value="#[vars.cachedResponse]"/>
+            </when>
+            <otherwise>
+                <http:request method="POST" config-ref="sap-system-api-requestConfig"
+                              path="/api/v1/sap-orders"
+                              responseTimeout="${sapSystemApi.timeout.ms}">
+                    <http:headers><![CDATA[#[{'X-Correlation-Id': vars.correlationId}]]]></http:headers>
+                </http:request>
+                <ee:transform doc:name="Shape OrderSummary for creation response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload ++ {customerDataAvailable: false}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+
+                <db:insert config-ref="archive-db-config" doc:name="Archive order summary">
+                    <db:sql><![CDATA[INSERT INTO order_archive (order_id, status, order_date, total_amount, currency, correlation_id)
+VALUES (:orderId, :status, :orderDate, :totalAmount, :currency, :correlationId)]]></db:sql>
+                    <db:input-parameters><![CDATA[#[{
+                        orderId: payload.orderId,
+                        status: payload.status,
+                        orderDate: payload.orderDate,
+                        totalAmount: payload.totalAmount,
+                        currency: payload.currency,
+                        correlationId: vars.correlationId
+                    }]]]></db:input-parameters>
+                </db:insert>
+
+                <os:store key="#[attributes.headers['Idempotency-Key']]" objectStore="idempotencyStore">
+                    <os:value><![CDATA[#[payload]]]></os:value>
+                </os:store>
+
+                <set-variable variableName="httpStatus" value="201"/>
+            </otherwise>
+        </choice>
+    </flow>
+
+</mule>

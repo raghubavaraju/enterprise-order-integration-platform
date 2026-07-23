@@ -1,0 +1,33 @@
+# STATUS: Configuration placeholder — no real values. Never commit real credentials.
+
+env: "${mule.env}"
+
+sapSystemApi:
+  base.uri: "https://sap-system-api.fictional-northbridge.example.com/api/v1"
+  timeout.ms: 6000
+
+salesforceSystemApi:
+  base.uri: "https://salesforce-system-api.fictional-northbridge.example.com/api/v1"
+  timeout.ms: 5000
+  # Used to trigger the graceful-degradation path when unavailable (see docs/scalability-and-resilience.md)
+  circuitBreaker.failureThreshold: 5
+  circuitBreaker.coolDown.ms: 20000
+
+oauth:
+  client.id: "${secure::process.oauth.clientId}"
+  client.secret: "${secure::process.oauth.clientSecret}"
+  token.uri: "https://auth.fictional-northbridge.example.com/oauth/token"
+
+archiveDb:
+  host: "order-archive-db.internal.example.com"
+  port: 5432
+  database: "order_archive"
+  user: "order_process_svc"
+  password: "${secure::archive.db.password}"    # placeholder
+
+idempotency:
+  objectStore.name: "orderIdempotencyStore"
+  ttl.hours: 24
+
+http:
+  listener.port: "${http.port}"

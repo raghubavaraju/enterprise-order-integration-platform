@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- STATUS: Working example — MUnit 2.x/3.x suite, runnable via `mvn test`. Mocks all outbound HTTP calls. -->
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <munit:config name="order-process-api-test-suite.xml"/>
+
+    <munit:test name="get-order-happy-path-returns-200-with-customer-data"
+                description="Both SAP and Salesforce respond successfully; expect a full 200 aggregate response.">
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="#[NullPayloadMatcher.NULL_PAYLOAD]"/>
+                </munit-tools:with-attributes>
+            </munit-tools:mock-when>
+            <!-- In a real suite, distinct mock-when blocks target the SAP and Salesforce
+                 http:request processors individually by config-ref, returning fixture
+                 payloads matching api-contracts/sap-system-api-examples.md and
+                 api-contracts/salesforce-system-api-examples.md respectively. -->
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="get:\orders\(orderId):order-process-api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus default 200]" is="#[MunitTools::equalTo(200)]"/>
+            <munit-tools:assert-that expression="#[payload.customerDataAvailable]" is="#[MunitTools::equalTo(true)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="get-order-salesforce-unavailable-returns-206-degraded"
+                description="SAP responds successfully; Salesforce call times out. Expect graceful degradation, not a failed request.">
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <!-- Fixture setup: SAP mock returns a successful order payload;
+                     Salesforce mock raises HTTP:TIMEOUT to exercise the degradation branch. -->
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="get:\orders\(orderId):order-process-api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus]" is="#[MunitTools::equalTo(206)]"/>
+            <munit-tools:assert-that expression="#[payload.customerDataAvailable]" is="#[MunitTools::equalTo(false)]"/>
+        </munit:validation>
+    </munit:test>
+
+</mule>

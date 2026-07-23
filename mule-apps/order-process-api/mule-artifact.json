@@ -1,0 +1,17 @@
+{
+  "minMuleVersion": "4.6.0",
+  "name": "order-process-api",
+  "requiredProduct": "MULE_EE",
+  "classLoaderModelLoaderDescriptor": {
+    "id": "mule",
+    "attributes": {
+      "exportedPackages": [],
+      "exportedResources": ["dwl", "config"]
+    }
+  },
+  "configs": ["order-process-api.xml"],
+  "secureProperties": [
+    "process.oauth.clientSecret",
+    "archive.db.password"
+  ]
+}
