@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- STATUS: Working example flow (illustrative Mule 4 XML, valid syntax; fictional backend). -->
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <import file="../../../common/global-error-handler.xml"/>
+
+    <http:listener-config name="experience-api-httpListenerConfig">
+        <http:listener-connection host="0.0.0.0" port="${http.listener.port}"/>
+    </http:listener-config>
+
+    <http:request-config name="order-process-api-requestConfig">
+        <http:request-connection host="order-process-api.fictional-northbridge.example.com" protocol="HTTPS"/>
+    </http:request-config>
+
+    <apikit:config name="customer-experience-api-config" api="customer-experience-api.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus"/>
+
+    <flow name="customer-experience-api-main">
+        <http:listener config-ref="experience-api-httpListenerConfig" path="/api/v1/*"/>
+        <ee:transform doc:name="Capture correlation ID and channel">
+            <ee:variables>
+                <ee:set-variable variableName="correlationId">
+                    <![CDATA[%dw 2.0
+output text/plain
+---
+attributes.headers['X-Correlation-Id'] default uuid()]]>
+                </ee:set-variable>
+                <ee:set-variable variableName="channel">
+                    <![CDATA[%dw 2.0
+output text/plain
+---
+attributes.headers['X-Channel'] default "storefront"]]>
+                </ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <apikit:router config-ref="customer-experience-api-config"/>
+        <error-handler ref="global-error-handler"/>
+    </flow>
+
+    <!-- GET /orders/{orderId} — cached, channel-shaped -->
+    <flow name="get:\orders\(orderId):order-process-api-config">
+        <!-- Cache scope keyed on orderId + channel, per docs/scalability-and-resilience.md -->
+        <http:request method="GET" config-ref="order-process-api-requestConfig"
+                      path="/api/v1/orders/#[attributes.uriParams.orderId]"
+                      responseTimeout="${orderProcessApi.timeout.ms}">
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.correlationId}]]]></http:headers>
+        </http:request>
+        <ee:transform doc:name="Store Process API response">
+            <ee:variables>
+                <ee:set-variable variableName="processApiResponse"><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <ee:transform doc:name="Shape response for channel">
+            <ee:message>
+                <ee:set-payload resource="dwl/experience-order-summary.dwl"/>
+            </ee:message>
+        </ee:transform>
+    </flow>
+
+    <!-- GET /orders — paginated list, delegated to Process API with pass-through query params -->
+    <flow name="get:\orders:customer-experience-api-config">
+        <http:request method="GET" config-ref="order-process-api-requestConfig"
+                      path="/api/v1/orders"
+                      responseTimeout="${orderProcessApi.timeout.ms}">
+            <http:headers><![CDATA[#[{'X-Correlation-Id': vars.correlationId}]]]></http:headers>
+            <http:query-params><![CDATA[#[attributes.queryParams]]]></http:query-params>
+        </http:request>
+    </flow>
+
+</mule>

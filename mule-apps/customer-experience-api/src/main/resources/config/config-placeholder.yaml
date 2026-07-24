@@ -1,0 +1,20 @@
+# STATUS: Configuration placeholder — no real values. Never commit real credentials.
+
+env: "${mule.env}"
+
+orderProcessApi:
+  base.uri: "https://order-process-api.fictional-northbridge.example.com/api/v1"
+  timeout.ms: 4000
+
+oauth:
+  client.id: "${secure::experience.oauth.clientId}"
+  client.secret: "${secure::experience.oauth.clientSecret}"
+  authorization.uri: "https://auth.fictional-northbridge.example.com/oauth/authorize"
+  token.uri: "https://auth.fictional-northbridge.example.com/oauth/token"
+
+cache:
+  objectStore.name: "experienceResponseCache"
+  ttl.seconds: 30
+
+http:
+  listener.port: "${http.port}"

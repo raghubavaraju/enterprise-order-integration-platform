@@ -1,0 +1,16 @@
+{
+  "minMuleVersion": "4.6.0",
+  "name": "customer-experience-api",
+  "requiredProduct": "MULE_EE",
+  "classLoaderModelLoaderDescriptor": {
+    "id": "mule",
+    "attributes": {
+      "exportedPackages": [],
+      "exportedResources": ["dwl", "config"]
+    }
+  },
+  "configs": ["customer-experience-api.xml"],
+  "secureProperties": [
+    "experience.oauth.clientSecret"
+  ]
+}
